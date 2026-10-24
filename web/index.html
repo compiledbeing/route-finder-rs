@@ -1,0 +1,733 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Route Finder</title>
+<style>
+  :root {
+    color-scheme: light dark;
+    --bg: #f4f6f8;
+    --panel: #ffffff;
+    --map: #e6ecf1;
+    --ink: #17232e;
+    --muted: #566877;
+    --line: #d3dce4;
+    --road: #a7b6c3;
+    --toll: #6c8499;
+    --node: #3f5366;
+    --explored: #dc8a1f;
+    --route: #1c47d9;
+    --on-route: #ffffff;
+    --font: "Avenir Next", "Segoe UI", "Helvetica Neue", Cantarell, Ubuntu, "Noto Sans", sans-serif;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #0b141d;
+      --panel: #122030;
+      --map: #0e1b28;
+      --ink: #e6eef5;
+      --muted: #8fa3b5;
+      --line: #223648;
+      --road: #2b4054;
+      --toll: #4f6d88;
+      --node: #b9c9d7;
+      --explored: #f0ae48;
+      --route: #5ccbff;
+      --on-route: #06202e;
+    }
+  }
+
+  * { box-sizing: border-box; }
+  html, body { margin: 0; }
+  body {
+    min-height: 100vh;
+    min-height: 100dvh;
+    display: flex;
+    flex-direction: column;
+    background: var(--bg);
+    color: var(--ink);
+    font: 15px/1.45 var(--font);
+  }
+  button, select { font: inherit; color: inherit; }
+  :focus-visible { outline: 2px solid var(--route); outline-offset: 2px; }
+
+  header.top {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 4px 16px;
+    padding: 14px 20px 4px;
+  }
+  header.top h1 { margin: 0; font-size: 1.25rem; font-weight: 700; letter-spacing: -0.01em; }
+  header.top p { margin: 0; color: var(--muted); font-size: 0.9rem; }
+
+  .controls {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-end;
+    gap: 12px 18px;
+    padding: 10px 20px 14px;
+  }
+  .field { display: flex; flex-direction: column; gap: 4px; }
+  .label { font-size: 0.8rem; color: var(--muted); }
+  select {
+    min-width: 10.5rem;
+    padding: 7px 10px;
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+  }
+  .btn {
+    padding: 7px 12px;
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    cursor: pointer;
+  }
+  .btn:hover { border-color: var(--route); }
+
+  .seg { display: inline-flex; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; background: var(--panel); }
+  .seg label { display: block; cursor: pointer; }
+  .seg input { position: absolute; opacity: 0; pointer-events: none; }
+  .seg span { display: block; padding: 7px 12px; }
+  .seg label + label span { border-left: 1px solid var(--line); }
+  .seg input:checked + span { background: var(--route); color: var(--on-route); font-weight: 600; }
+  .seg input:focus-visible + span { outline: 2px solid var(--route); outline-offset: -3px; }
+
+  #status { margin: 0; padding: 0 20px 8px; color: #b3261e; font-size: 0.9rem; }
+  #status:empty { display: none; }
+  @media (prefers-color-scheme: dark) { #status { color: #ff9a92; } }
+
+  #map-wrap {
+    position: relative;
+    flex: 1 1 auto;
+    min-height: 300px;
+    background: var(--map);
+    border-top: 1px solid var(--line);
+    border-bottom: 1px solid var(--line);
+  }
+  #map { position: absolute; inset: 0; width: 100%; height: 100%; display: block; touch-action: manipulation; }
+  .legend {
+    position: absolute;
+    left: 14px;
+    bottom: 12px;
+    display: grid;
+    gap: 4px;
+    padding: 8px 10px;
+    font-size: 0.8rem;
+    color: var(--muted);
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    pointer-events: none;
+  }
+  .legend div { display: flex; align-items: center; gap: 8px; }
+  .legend i { display: inline-block; width: 22px; height: 0; border-top: 2px solid; }
+  .legend i.dot { width: 9px; height: 9px; border: 0; border-radius: 50%; margin: 0 6.5px; }
+
+  .panels { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.25fr); background: var(--panel); }
+  .panel { padding: 14px 20px 18px; min-width: 0; }
+  .panel + .panel { border-left: 1px solid var(--line); }
+  .panel h2 { margin: 0 0 8px; font-size: 1rem; }
+  .empty, .note, .caption { margin: 0; color: var(--muted); font-size: 0.9rem; }
+  .note { margin-top: 10px; }
+  .caption { margin-top: 10px; font-size: 0.82rem; }
+  .summary { margin: 0 0 10px; font-weight: 600; }
+  #route-body { max-height: 32vh; overflow: auto; padding-right: 6px; }
+
+  .stops { list-style: none; margin: 0; padding: 0; }
+  .stops li { position: relative; padding: 0 0 12px 24px; }
+  .stops li::before {
+    content: ""; position: absolute; left: 3px; top: 7px;
+    width: 10px; height: 10px; border-radius: 50%; background: var(--route);
+  }
+  .stops li::after {
+    content: ""; position: absolute; left: 7px; top: 19px; bottom: -3px;
+    width: 2px; background: var(--route); opacity: 0.35;
+  }
+  .stops li:last-child { padding-bottom: 0; }
+  .stops li:last-child::after { display: none; }
+  .stops .name { font-weight: 600; }
+  .stops .leg { display: block; color: var(--muted); font-size: 0.84rem; }
+
+  table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; font-size: 0.9rem; }
+  th, td { padding: 7px 8px; text-align: right; border-bottom: 1px solid var(--line); white-space: nowrap; }
+  th:first-child, td:first-child { text-align: left; padding-left: 0; }
+  thead th { color: var(--muted); font-weight: 500; font-size: 0.8rem; }
+  tbody th { font-weight: 600; }
+  tr.sel td, tr.sel th { background: color-mix(in srgb, var(--route) 10%, transparent); }
+  tr.sel th:first-child { box-shadow: inset 3px 0 0 var(--route); padding-left: 8px; }
+  button.link { background: none; border: 0; padding: 0; font-weight: 600; cursor: pointer; text-decoration: underline; text-underline-offset: 3px; }
+  td.exp { text-align: left; min-width: 9.5rem; }
+  .bar { display: inline-block; width: 54px; height: 6px; margin-right: 8px; vertical-align: middle; background: var(--line); border-radius: 3px; overflow: hidden; }
+  .bar i { display: block; height: 100%; background: var(--explored); }
+  .table-scroll { overflow-x: auto; }
+
+  @media (max-width: 800px) {
+    .panels { grid-template-columns: 1fr; }
+    .panel + .panel { border-left: 0; border-top: 1px solid var(--line); }
+    #route-body { max-height: none; }
+    #map-wrap { min-height: 340px; }
+    select { min-width: 9rem; }
+  }
+</style>
+</head>
+<body>
+  <header class="top">
+    <h1>Route Finder</h1>
+    <p id="dataset">Loading map...</p>
+  </header>
+
+  <section class="controls" aria-label="Route options">
+    <div class="field">
+      <label class="label" for="from">From</label>
+      <select id="from"></select>
+    </div>
+    <button class="btn" id="swap" type="button" aria-label="Swap start and destination">Swap</button>
+    <div class="field">
+      <label class="label" for="to">To</label>
+      <select id="to"></select>
+    </div>
+    <div class="field">
+      <span class="label" id="algo-label">Algorithm</span>
+      <div class="seg" role="radiogroup" aria-labelledby="algo-label" id="algo">
+        <label><input type="radio" name="algo" value="bfs"><span>BFS</span></label>
+        <label><input type="radio" name="algo" value="dijkstra"><span>Dijkstra</span></label>
+        <label><input type="radio" name="algo" value="astar" checked><span>A*</span></label>
+      </div>
+    </div>
+    <div class="field">
+      <span class="label" id="metric-label">Optimize for</span>
+      <div class="seg" role="radiogroup" aria-labelledby="metric-label" id="metric">
+        <label><input type="radio" name="metric" value="distance" checked><span>Shortest distance</span></label>
+        <label><input type="radio" name="metric" value="time"><span>Fastest time</span></label>
+      </div>
+    </div>
+    <button class="btn" id="replay" type="button">Replay search</button>
+  </section>
+  <p id="status" role="status" aria-live="polite"></p>
+
+  <div id="map-wrap">
+    <canvas id="map" role="img" aria-label="Map of cities and roads. Select two cities to find a route; the route is also listed below."></canvas>
+    <div class="legend" aria-hidden="true">
+      <div><i style="border-color: var(--road)"></i>Road</div>
+      <div><i style="border-color: var(--toll); border-top-width: 3px"></i>Toll road</div>
+      <div><i class="dot" style="background: var(--explored)"></i>City searched</div>
+      <div><i style="border-color: var(--route); border-top-width: 4px"></i>Route</div>
+    </div>
+  </div>
+
+  <section class="panels">
+    <div class="panel">
+      <h2>Route</h2>
+      <div id="route-body"></div>
+    </div>
+    <div class="panel">
+      <h2>Compare algorithms</h2>
+      <div id="compare-body"></div>
+    </div>
+  </section>
+
+<script>
+"use strict";
+
+const $ = (sel) => document.querySelector(sel);
+const ALGOS = [
+  { key: "bfs", label: "BFS" },
+  { key: "dijkstra", label: "Dijkstra" },
+  { key: "astar", label: "A*" },
+];
+const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
+const canvas = $("#map");
+const ctx = canvas.getContext("2d");
+const view = { w: 0, h: 0 };
+const colors = {};
+
+const state = {
+  graph: null,
+  nodes: new Map(),   // id -> node
+  pos: new Map(),     // id -> {x, y} in CSS pixels
+  degree: new Map(),  // id -> number of roads
+  from: null,
+  to: null,
+  algo: "astar",
+  metric: "distance",
+  results: null,      // {bfs, dijkstra, astar} for the current from/to/metric
+  hover: null,
+  revealed: 0,        // how many searched cities are shown so far (animation)
+  pathT: 0,           // 0..1, how much of the route line is drawn (animation)
+  token: 0,           // guards against out-of-order responses
+  raf: 0,
+};
+
+/* ---------- helpers ---------- */
+
+function h(tag, props, ...kids) {
+  const el = document.createElement(tag);
+  for (const [k, v] of Object.entries(props || {})) {
+    if (k === "class") el.className = v;
+    else if (k.startsWith("on")) el.addEventListener(k.slice(2), v);
+    else el.setAttribute(k, v);
+  }
+  el.append(...kids);
+  return el;
+}
+
+const fmtKm = (v) => v.toFixed(1) + " km";
+function fmtDur(min) {
+  const t = Math.round(min);
+  return t >= 60 ? Math.floor(t / 60) + " h " + String(t % 60).padStart(2, "0") + " min" : t + " min";
+}
+const nameOf = (id) => (state.nodes.get(id) || { name: id }).name;
+const currentResult = () => (state.results ? state.results[state.algo] : null);
+
+function setStatus(message) {
+  $("#status").textContent = message || "";
+}
+
+async function api(url) {
+  let res;
+  try {
+    res = await fetch(url);
+  } catch (e) {
+    throw new Error("Cannot reach the server. Start it with: route-finder serve");
+  }
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(body.error || "Request failed (" + res.status + ")");
+  return body;
+}
+
+function readColors() {
+  const s = getComputedStyle(document.documentElement);
+  for (const k of ["map", "road", "toll", "node", "explored", "route", "ink", "muted"]) {
+    colors[k] = s.getPropertyValue("--" + k).trim();
+  }
+  colors.font = getComputedStyle(document.body).fontFamily;
+}
+
+/* ---------- map projection and drawing ---------- */
+
+function layout() {
+  const wrap = $("#map-wrap");
+  const dpr = window.devicePixelRatio || 1;
+  view.w = wrap.clientWidth;
+  view.h = wrap.clientHeight;
+  canvas.width = Math.round(view.w * dpr);
+  canvas.height = Math.round(view.h * dpr);
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  if (state.graph && view.w > 0) {
+    project();
+    draw();
+  }
+}
+
+// Equirectangular projection, with longitude scaled by cos(latitude) so the island is not stretched.
+function project() {
+  const ns = state.graph.nodes;
+  const midLat = ns.reduce((sum, n) => sum + n.lat, 0) / ns.length;
+  const kx = Math.cos((midLat * Math.PI) / 180);
+  const xs = ns.map((n) => n.lon * kx);
+  const ys = ns.map((n) => -n.lat);
+  const minX = Math.min(...xs), maxX = Math.max(...xs);
+  const minY = Math.min(...ys), maxY = Math.max(...ys);
+
+  const padX = Math.min(64, view.w * 0.07);
+  const padY = Math.min(48, view.h * 0.12);
+  const availW = view.w - 2 * padX;
+  const availH = view.h - 2 * padY;
+  const scale = Math.min(availW / (maxX - minX || 1), availH / (maxY - minY || 1));
+  const offX = padX + (availW - (maxX - minX) * scale) / 2;
+  const offY = padY + (availH - (maxY - minY) * scale) / 2;
+
+  ns.forEach((n, i) => {
+    state.pos.set(n.id, { x: offX + (xs[i] - minX) * scale, y: offY + (ys[i] - minY) * scale });
+  });
+}
+
+function draw() {
+  if (!state.graph || view.w <= 0) return;
+  ctx.clearRect(0, 0, view.w, view.h);
+  ctx.fillStyle = colors.map;
+  ctx.fillRect(0, 0, view.w, view.h);
+
+  // Roads: regular first, then toll roads on top.
+  ctx.lineCap = "round";
+  for (const toll of [false, true]) {
+    ctx.strokeStyle = toll ? colors.toll : colors.road;
+    ctx.lineWidth = toll ? 3 : 1.8;
+    ctx.beginPath();
+    for (const r of state.graph.roads) {
+      if ((r.speed_kmh >= 80) !== toll) continue;
+      const a = state.pos.get(r.from), b = state.pos.get(r.to);
+      ctx.moveTo(a.x, a.y);
+      ctx.lineTo(b.x, b.y);
+    }
+    ctx.stroke();
+  }
+
+  const res = currentResult();
+  const searched = new Set(res ? res.expansion_order.slice(0, state.revealed) : []);
+  let reached = 0;
+  if (res && res.found && state.pathT > 0) {
+    reached = drawRoute(res.path.map((id) => state.pos.get(id)), state.pathT);
+  }
+  const onRoute = new Set(res && res.found ? res.path.slice(0, reached) : []);
+
+  // Cities.
+  for (const n of state.graph.nodes) {
+    const p = state.pos.get(n.id);
+    let r = 3.5;
+    ctx.fillStyle = colors.node;
+    if (searched.has(n.id)) { ctx.fillStyle = colors.explored; r = 5; }
+    if (onRoute.has(n.id)) { ctx.fillStyle = colors.route; r = 5.5; }
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, r, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  // Start (solid) and destination (ring), drawn on top of everything else.
+  if (state.from) {
+    const p = state.pos.get(state.from);
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, 8, 0, Math.PI * 2);
+    ctx.fillStyle = colors.route;
+    ctx.fill();
+    ctx.lineWidth = 2;
+    ctx.strokeStyle = colors.map;
+    ctx.stroke();
+  }
+  if (state.to) {
+    const p = state.pos.get(state.to);
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, 8, 0, Math.PI * 2);
+    ctx.fillStyle = colors.map;
+    ctx.fill();
+    ctx.lineWidth = 3;
+    ctx.strokeStyle = colors.route;
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, 3, 0, Math.PI * 2);
+    ctx.fillStyle = colors.route;
+    ctx.fill();
+  }
+  if (state.hover && state.hover !== state.from && state.hover !== state.to) {
+    const p = state.pos.get(state.hover);
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, 8, 0, Math.PI * 2);
+    ctx.lineWidth = 1.5;
+    ctx.strokeStyle = colors.ink;
+    ctx.stroke();
+  }
+
+  drawLabels(onRoute);
+}
+
+// Draws the first `t` (0..1) of the polyline. Returns how many path nodes the line has reached.
+function drawRoute(points, t) {
+  const lengths = [];
+  let total = 0;
+  for (let i = 1; i < points.length; i++) {
+    const len = Math.hypot(points[i].x - points[i - 1].x, points[i].y - points[i - 1].y);
+    lengths.push(len);
+    total += len;
+  }
+  let remaining = total * t;
+  let reached = 1;
+
+  ctx.beginPath();
+  ctx.moveTo(points[0].x, points[0].y);
+  for (let i = 1; i < points.length; i++) {
+    const a = points[i - 1], b = points[i], len = lengths[i - 1];
+    if (remaining >= len - 1e-6) {
+      ctx.lineTo(b.x, b.y);
+      remaining -= len;
+      reached = i + 1;
+    } else {
+      const f = remaining / len;
+      ctx.lineTo(a.x + (b.x - a.x) * f, a.y + (b.y - a.y) * f);
+      break;
+    }
+  }
+  ctx.lineCap = "round";
+  ctx.lineJoin = "round";
+  ctx.strokeStyle = colors.map;   // halo keeps the route legible over busy roads
+  ctx.lineWidth = 9;
+  ctx.stroke();
+  ctx.strokeStyle = colors.route;
+  ctx.lineWidth = 5;
+  ctx.stroke();
+  return reached;
+}
+
+// Greedy label placement: important labels first, the rest only where they fit.
+function drawLabels(onRoute) {
+  const important = new Set([state.from, state.to, state.hover].filter(Boolean));
+  const weight = (n) => (important.has(n.id) ? 1000 : 0) + (onRoute.has(n.id) ? 500 : 0) + state.degree.get(n.id);
+  const ordered = [...state.graph.nodes].sort((a, b) => weight(b) - weight(a));
+  const placed = [];
+  const overlaps = (r) => placed.some((q) => r.x < q.x + q.w && r.x + r.w > q.x && r.y < q.y + q.h && r.y + r.h > q.y);
+  const inside = (r) => r.x >= 2 && r.y >= 2 && r.x + r.w <= view.w - 2 && r.y + r.h <= view.h - 2;
+  // Keep labels off other cities' dots (a few pixels of breathing room).
+  const hitsDot = (r, ownId) => {
+    for (const [id, p] of state.pos) {
+      if (id !== ownId && p.x > r.x - 5 && p.x < r.x + r.w + 5 && p.y > r.y - 5 && p.y < r.y + r.h + 5) return true;
+    }
+    return false;
+  };
+
+  ctx.lineJoin = "round";
+  ctx.textBaseline = "alphabetic";
+  for (const n of ordered) {
+    const strong = important.has(n.id) || onRoute.has(n.id);
+    ctx.font = (strong ? "600 13px " : "400 12px ") + colors.font;
+    const w = ctx.measureText(n.name).width;
+    const p = state.pos.get(n.id);
+    const gap = 11;
+    const candidates = [
+      { x: p.x + gap, y: p.y - 6 },
+      { x: p.x - gap - w, y: p.y - 6 },
+      { x: p.x - w / 2, y: p.y - gap - 9 },
+      { x: p.x - w / 2, y: p.y + gap },
+    ].map((c) => ({ x: c.x, y: c.y, w, h: 14 }));
+
+    const free = (c) => inside(c) && !overlaps(c);
+    let spot = candidates.find((c) => free(c) && !hitsDot(c, n.id));
+    // Start, destination and hovered city always get a label, even if it has to overlap something.
+    if (!spot && important.has(n.id)) spot = candidates.find(free) || candidates.find(inside) || candidates[0];
+    if (!spot) continue;
+    placed.push(spot);
+
+    ctx.lineWidth = 3;
+    ctx.strokeStyle = colors.map;
+    ctx.strokeText(n.name, spot.x, spot.y + 11);
+    ctx.fillStyle = strong ? colors.ink : colors.muted;
+    ctx.fillText(n.name, spot.x, spot.y + 11);
+  }
+}
+
+/* ---------- animation ---------- */
+
+function animate() {
+  cancelAnimationFrame(state.raf);
+  const res = currentResult();
+  if (!res) {
+    state.revealed = 0;
+    state.pathT = 0;
+    draw();
+    return;
+  }
+  const n = res.expansion_order.length;
+  const searchMs = reducedMotion.matches ? 0 : Math.min(1500, n * 60);
+  const routeMs = reducedMotion.matches || !res.found ? 0 : 700;
+  const t0 = performance.now();
+
+  const step = (now) => {
+    const t = now - t0;
+    state.revealed = searchMs ? Math.min(n, Math.floor((t / searchMs) * n)) : n;
+    state.pathT = !res.found ? 0 : routeMs ? Math.min(1, Math.max(0, (t - searchMs) / routeMs)) : 1;
+    draw();
+    if (t < searchMs + routeMs) state.raf = requestAnimationFrame(step);
+  };
+  state.raf = requestAnimationFrame(step);
+}
+
+/* ---------- panels ---------- */
+
+function render() {
+  renderRoute();
+  renderCompare();
+}
+
+function renderRoute() {
+  const box = $("#route-body");
+  box.replaceChildren();
+  if (!state.from || !state.to) {
+    box.append(h("p", { class: "empty" }, "Choose a start and a destination. Click two cities on the map or use the menus above."));
+    return;
+  }
+  const res = currentResult();
+  if (!res) return; // still loading, or the request failed (the status line explains why)
+  if (!res.found) {
+    box.append(h("p", { class: "empty" }, "No road connects " + nameOf(state.from) + " to " + nameOf(state.to) + "."));
+    return;
+  }
+
+  box.append(h("p", { class: "summary" }, fmtKm(res.distance_km) + ", about " + fmtDur(res.time_min) + ", through " + res.path.length + (res.path.length === 1 ? " stop." : " stops.")));
+  const list = h("ol", { class: "stops" });
+  res.path.forEach((id, i) => {
+    const li = h("li", {}, h("span", { class: "name" }, nameOf(id)));
+    const leg = res.legs[i];
+    if (leg) {
+      li.append(h("span", { class: "leg" }, fmtKm(leg.distance_km) + ", " + fmtDur(leg.time_min) + " on " + leg.road));
+    }
+    list.append(li);
+  });
+  box.append(list);
+  if (state.algo === "bfs") {
+    box.append(h("p", { class: "note" }, "BFS minimizes the number of stops and ignores road length, so it can choose a longer drive."));
+  }
+}
+
+function renderCompare() {
+  const box = $("#compare-body");
+  box.replaceChildren();
+  if (!state.results) {
+    box.append(h("p", { class: "empty" }, "Pick two cities to see how each algorithm searches."));
+    return;
+  }
+  const total = state.graph.nodes.length;
+  const head = h("tr", {}, ...["Algorithm", "Distance", "Time", "Stops", "Cities searched", "Search time"].map((t) => h("th", { scope: "col" }, t)));
+  const body = h("tbody");
+  for (const a of ALGOS) {
+    const r = state.results[a.key];
+    const tr = h("tr", a.key === state.algo ? { class: "sel", "aria-current": "true" } : {});
+    const pick = h("button", { type: "button", class: "link", onclick: () => setAlgo(a.key) }, a.label);
+    tr.append(
+      h("th", { scope: "row" }, pick),
+      h("td", {}, r.found ? fmtKm(r.distance_km) : "-"),
+      h("td", {}, r.found ? fmtDur(r.time_min) : "-"),
+      h("td", {}, r.found ? String(r.path.length) : "-"),
+      h("td", { class: "exp" },
+        h("span", { class: "bar", "aria-hidden": "true" }, h("i", { style: "width:" + (r.nodes_expanded / total) * 100 + "%" })),
+        r.nodes_expanded + " of " + total),
+      h("td", {}, r.elapsed_us.toFixed(1) + " \u00b5s"),
+    );
+    body.append(tr);
+  }
+  box.append(
+    h("div", { class: "table-scroll" }, h("table", {}, h("thead", {}, head), body)),
+    h("p", { class: "caption" }, "Cities searched is how many cities an algorithm settled before reaching the destination. Fewer means less work for the same route."),
+  );
+}
+
+/* ---------- state changes ---------- */
+
+function syncControls() {
+  $("#from").value = state.from || "";
+  $("#to").value = state.to || "";
+  document.querySelector('input[name="algo"][value="' + state.algo + '"]').checked = true;
+  document.querySelector('input[name="metric"][value="' + state.metric + '"]').checked = true;
+}
+
+function setAlgo(key) {
+  state.algo = key;
+  syncControls();
+  render();
+  animate();
+}
+
+async function findRoute() {
+  const token = ++state.token;
+  setStatus("");
+  if (!state.from || !state.to) {
+    state.results = null;
+    render();
+    animate();
+    return;
+  }
+  const query = (algo) =>
+    "/api/route?from=" + encodeURIComponent(state.from) + "&to=" + encodeURIComponent(state.to) +
+    "&algo=" + algo + "&metric=" + state.metric;
+  try {
+    const list = await Promise.all(ALGOS.map((a) => api(query(a.key))));
+    if (token !== state.token) return;
+    state.results = Object.fromEntries(ALGOS.map((a, i) => [a.key, list[i]]));
+  } catch (e) {
+    if (token !== state.token) return;
+    state.results = null;
+    setStatus(e.message);
+  }
+  render();
+  animate();
+}
+
+// Click once to set the start, again to set the destination, again to start over.
+function pickCity(id) {
+  if (!state.from || (state.from && state.to)) {
+    state.from = id;
+    state.to = null;
+  } else if (id !== state.from) {
+    state.to = id;
+  } else {
+    return;
+  }
+  syncControls();
+  findRoute();
+}
+
+function nearestCity(event) {
+  const rect = canvas.getBoundingClientRect();
+  const x = event.clientX - rect.left, y = event.clientY - rect.top;
+  let best = null, bestDist = 18;
+  for (const [id, p] of state.pos) {
+    const d = Math.hypot(p.x - x, p.y - y);
+    if (d < bestDist) { best = id; bestDist = d; }
+  }
+  return best;
+}
+
+/* ---------- startup ---------- */
+
+async function init() {
+  readColors();
+  try {
+    state.graph = await api("/api/graph");
+  } catch (e) {
+    $("#dataset").textContent = "";
+    setStatus(e.message);
+    return;
+  }
+  for (const n of state.graph.nodes) {
+    state.nodes.set(n.id, n);
+    state.degree.set(n.id, 0);
+  }
+  for (const r of state.graph.roads) {
+    state.degree.set(r.from, state.degree.get(r.from) + 1);
+    state.degree.set(r.to, state.degree.get(r.to) + 1);
+  }
+  $("#dataset").textContent = state.graph.name + ": " + state.graph.nodes.length + " cities and " + state.graph.roads.length + " roads.";
+
+  const sorted = [...state.graph.nodes].sort((a, b) => a.name.localeCompare(b.name));
+  for (const sel of [$("#from"), $("#to")]) {
+    sel.append(h("option", { value: "" }, "Choose a city"));
+    for (const n of sorted) sel.append(h("option", { value: n.id }, n.name));
+  }
+
+  $("#from").addEventListener("change", (e) => { state.from = e.target.value || null; findRoute(); });
+  $("#to").addEventListener("change", (e) => { state.to = e.target.value || null; findRoute(); });
+  $("#swap").addEventListener("click", () => {
+    [state.from, state.to] = [state.to, state.from];
+    syncControls();
+    findRoute();
+  });
+  $("#algo").addEventListener("change", (e) => setAlgo(e.target.value));
+  $("#metric").addEventListener("change", (e) => { state.metric = e.target.value; findRoute(); });
+  $("#replay").addEventListener("click", animate);
+
+  canvas.addEventListener("pointermove", (e) => {
+    const id = nearestCity(e);
+    if (id !== state.hover) {
+      state.hover = id;
+      canvas.style.cursor = id ? "pointer" : "default";
+      draw();
+    }
+  });
+  canvas.addEventListener("pointerleave", () => { state.hover = null; draw(); });
+  canvas.addEventListener("click", (e) => { const id = nearestCity(e); if (id) pickCity(id); });
+
+  new ResizeObserver(layout).observe($("#map-wrap"));
+  window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () => { readColors(); draw(); });
+
+  // Start with a route on screen so the page is not empty on first load.
+  state.from = state.nodes.has("bandung") ? "bandung" : sorted[0].id;
+  state.to = state.nodes.has("purwokerto") ? "purwokerto" : sorted[sorted.length - 1].id;
+  syncControls();
+  layout();
+  findRoute();
+}
+
+init();
+</script>
+</body>
+</html>

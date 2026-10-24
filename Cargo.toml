@@ -1,0 +1,39 @@
+[package]
+name = "route-finder"
+version = "1.0.0"
+edition = "2021"
+description = "Graph-based route finder: BFS, Dijkstra and A* on a JSON road network, with a CLI and an interactive web map"
+license = "MIT"
+readme = "README.md"
+keywords = ["pathfinding", "dijkstra", "astar", "graph", "routing"]
+categories = ["algorithms", "command-line-utilities"]
+
+[lib]
+name = "route_finder"
+path = "src/lib.rs"
+
+[[bin]]
+name = "route-finder"
+path = "src/main.rs"
+
+[features]
+default = ["server"]
+# The HTTP server behind `route-finder serve`. Disable for a minimal, dependency-light build.
+server = ["dep:axum", "dep:tokio"]
+
+[dependencies]
+anyhow = "1"
+clap = { version = "4", features = ["derive"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "2"
+axum = { version = "0.8", optional = true }
+tokio = { version = "1", features = ["macros", "net", "rt-multi-thread", "signal"], optional = true }
+
+[dev-dependencies]
+http-body-util = "0.1"
+tokio = { version = "1", features = ["macros", "rt"] }
+tower = { version = "0.5", features = ["util"] }
+
+[profile.release]
+lto = "thin"
