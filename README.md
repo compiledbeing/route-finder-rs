@@ -1,6 +1,6 @@
 # Route Finder
 
-[![CI](https://github.com/YOUR-USERNAME/route-finder/actions/workflows/ci.yml/badge.svg)](https://github.com/YOUR-USERNAME/route-finder/actions)
+[![CI](https://github.com/compiledbeing/route-finder/actions/workflows/ci.yml/badge.svg)](https://github.com/compiledbeing/route-finder/actions)
 
 A GPS-style route finder written in Rust. It loads a road network from JSON, finds routes with **BFS**, **Dijkstra** and **A\***, and can serve an interactive map where you click two cities and watch each algorithm search.
 
